@@ -15,7 +15,7 @@ router.post('/login', loginRateLimit, validateBody(loginSchema), async (req, res
 
     // Find user by email
     const [users] = await pool.execute(
-      'SELECT id, employee_id, name, email, password_hash, department, role, is_active FROM employees WHERE email = ?',
+      'SELECT id, employee_id, name, email, password_hash, department, role, gender, is_active FROM employees WHERE email = ?',
       [email]
     );
 
@@ -82,7 +82,7 @@ router.post('/login', loginRateLimit, validateBody(loginSchema), async (req, res
 router.get('/profile', authenticateToken, async (req, res) => {
   try {
     const [users] = await pool.execute(`
-      SELECT id, employee_id, name, email, department, role, joining_date, is_active, created_at
+      SELECT id, employee_id, name, email, department, role, gender, joining_date, is_active, created_at
       FROM employees WHERE id = ?
     `, [req.user.id]);
 

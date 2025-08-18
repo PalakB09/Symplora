@@ -10,10 +10,12 @@ const {
   dateRangeSchema
 } = require('../validations/schemas');
 const { 
-  calculateWorkingDays, 
-  isPastDate, 
+  calculateWorkingDays,
+  isPastDate,
   getCurrentYear,
-  formatDate 
+  formatDate,
+  isWorkingDay,
+  isPublicHoliday
 } = require('../utils/dateUtils');
 
 const router = express.Router();
@@ -58,13 +60,15 @@ router.get('/', authenticateToken, validateQuery(paginationSchema), async (req, 
 
     // Get leave requests with employee and leave type details
     const [leaveRequests] = await pool.execute(`
-      SELECT 
+      SELECT
         lr.id,
         lr.employee_id,
         lr.leave_type_id,
         lr.start_date,
         lr.end_date,
         lr.total_days,
+        lr.is_half_day,
+        lr.half_day_session,
         lr.reason,
         lr.status,
         lr.approved_by,
@@ -115,13 +119,15 @@ router.get('/:id', authenticateToken, validateParams(idParamSchema), async (req,
     const { id } = req.params;
 
     const [leaveRequests] = await pool.execute(`
-      SELECT 
+      SELECT
         lr.id,
         lr.employee_id,
         lr.leave_type_id,
         lr.start_date,
         lr.end_date,
         lr.total_days,
+        lr.is_half_day,
+        lr.half_day_session,
         lr.reason,
         lr.status,
         lr.approved_by,
@@ -176,7 +182,7 @@ router.get('/:id', authenticateToken, validateParams(idParamSchema), async (req,
 // Apply for leave
 router.post('/', authenticateToken, validateBody(leaveRequestSchema), async (req, res) => {
   try {
-    const { leave_type_id, start_date, end_date, reason } = req.body;
+    const { leave_type_id, start_date, end_date, reason, is_half_day, half_day_session } = req.body;
 
     // Edge Case 1: Check if dates are in the past
     if (isPastDate(start_date) || isPastDate(end_date)) {
@@ -188,7 +194,7 @@ router.post('/', authenticateToken, validateBody(leaveRequestSchema), async (req
 
     // Edge Case 2: Check if employee exists and is active
     const [employees] = await pool.execute(`
-      SELECT id, joining_date FROM employees WHERE id = ? AND is_active = TRUE
+      SELECT id, joining_date, gender FROM employees WHERE id = ? AND is_active = TRUE
     `, [req.user.id]);
 
     if (employees.length === 0) {
@@ -206,6 +212,18 @@ router.post('/', authenticateToken, validateBody(leaveRequestSchema), async (req
         success: false,
         message: 'Cannot apply for leave before joining date'
       });
+    }
+
+    // Edge Case 3b: If half-day, must be a working day and not a public holiday
+    if (is_half_day) {
+      const sameDay = new Date(start_date);
+      if (!isWorkingDay(sameDay)) {
+        return res.status(400).json({ success: false, message: 'Half-day leave must be on a working day (Mon-Fri)' });
+      }
+      const holiday = await isPublicHoliday(sameDay);
+      if (holiday) {
+        return res.status(400).json({ success: false, message: 'Half-day leave cannot be on a public holiday' });
+      }
     }
 
     // Edge Case 4: Check for overlapping leave requests
@@ -228,7 +246,12 @@ router.post('/', authenticateToken, validateBody(leaveRequestSchema), async (req
     }
 
     // Calculate working days (excluding weekends and holidays)
-    const totalDays = await calculateWorkingDays(start_date, end_date);
+    let totalDays = await calculateWorkingDays(start_date, end_date);
+
+    // If half-day, force totalDays = 0.5
+    if (is_half_day) {
+      totalDays = 0.5;
+    }
 
     if (totalDays <= 0) {
       return res.status(400).json({
@@ -237,10 +260,10 @@ router.post('/', authenticateToken, validateBody(leaveRequestSchema), async (req
       });
     }
 
-    // Edge Case 5: Check if employee has sufficient leave balance
+    // Edge Case 5: Check maternity/paternity constraints & balance
     const currentYear = getCurrentYear();
     const [leaveBalance] = await pool.execute(`
-      SELECT lb.remaining_days, lt.name as leave_type_name
+      SELECT (lb.total_days - lb.used_days) AS remaining_days, lt.name as leave_type_name
       FROM leave_balances lb
       JOIN leave_types lt ON lb.leave_type_id = lt.id
       WHERE lb.employee_id = ? AND lb.leave_type_id = ? AND lb.year = ?
@@ -253,7 +276,25 @@ router.post('/', authenticateToken, validateBody(leaveRequestSchema), async (req
       });
     }
 
-    if (leaveBalance[0].remaining_days < totalDays) {
+    // Additional constraints for maternity/paternity
+    // - Maternity: only female employees
+    // - Paternity: only male employees
+    const [ltRows] = await pool.execute('SELECT name FROM leave_types WHERE id = ?', [leave_type_id]);
+    const ltName = ltRows.length ? ltRows[0].name.toLowerCase() : '';
+    if (ltName.includes('maternity') && employee.gender !== 'female') {
+      return res.status(400).json({ success: false, message: 'Maternity leave is available only to female employees' });
+    }
+    if (ltName.includes('paternity') && employee.gender !== 'male') {
+      return res.status(400).json({ success: false, message: 'Paternity leave is available only to male employees' });
+    }
+    if ((ltName.includes('maternity') || ltName.includes('paternity')) && is_half_day) {
+      return res.status(400).json({ success: false, message: 'Half-day is not allowed for Maternity/Paternity leave' });
+    }
+
+    // For unpaid leave, skip balance checks
+    const isUnpaid = ltName.includes('unpaid');
+
+    if (!isUnpaid && leaveBalance[0].remaining_days < totalDays) {
       return res.status(400).json({
         success: false,
         message: `Insufficient leave balance. You have ${leaveBalance[0].remaining_days} days remaining for ${leaveBalance[0].leave_type_name}`
@@ -262,19 +303,21 @@ router.post('/', authenticateToken, validateBody(leaveRequestSchema), async (req
 
     // Create leave request
     const [result] = await pool.execute(`
-      INSERT INTO leave_requests (employee_id, leave_type_id, start_date, end_date, total_days, reason)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `, [req.user.id, leave_type_id, start_date, end_date, totalDays, reason]);
+      INSERT INTO leave_requests (employee_id, leave_type_id, start_date, end_date, total_days, is_half_day, half_day_session, reason)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `, [req.user.id, leave_type_id, start_date, end_date, totalDays, !!is_half_day, is_half_day ? half_day_session : null, reason]);
 
     // Get created leave request
     const [newLeaveRequest] = await pool.execute(`
-      SELECT 
+      SELECT
         lr.id,
         lr.employee_id,
         lr.leave_type_id,
         lr.start_date,
         lr.end_date,
         lr.total_days,
+        lr.is_half_day,
+        lr.half_day_session,
         lr.reason,
         lr.status,
         lr.created_at,
@@ -302,7 +345,7 @@ router.post('/', authenticateToken, validateBody(leaveRequestSchema), async (req
 });
 
 // Approve/Reject leave request (HR/Admin only)
-router.patch('/:id/status', authenticateToken, requireRole(['hr', 'admin']), validateParams(idParamSchema), validateBody(leaveRequestUpdateSchema), async (req, res) => {
+router.patch('/:id/status', authenticateToken, requireRole(['hr']), validateParams(idParamSchema), validateBody(leaveRequestUpdateSchema), async (req, res) => {
   try {
     const { id } = req.params;
     const { status, rejection_reason } = req.body;
@@ -343,7 +386,7 @@ router.patch('/:id/status', authenticateToken, requireRole(['hr', 'admin']), val
 
     // Update leave request status
     await pool.execute(`
-      UPDATE leave_requests 
+      UPDATE leave_requests
       SET status = ?, approved_by = ?, approved_at = CURRENT_TIMESTAMP, rejection_reason = ?, updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `, [status, req.user.id, rejection_reason || null, id]);
@@ -359,13 +402,15 @@ router.patch('/:id/status', authenticateToken, requireRole(['hr', 'admin']), val
 
     // Get updated leave request
     const [updatedLeaveRequest] = await pool.execute(`
-      SELECT 
+      SELECT
         lr.id,
         lr.employee_id,
         lr.leave_type_id,
         lr.start_date,
         lr.end_date,
         lr.total_days,
+        lr.is_half_day,
+        lr.half_day_session,
         lr.reason,
         lr.status,
         lr.approved_by,

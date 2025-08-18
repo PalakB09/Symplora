@@ -1,0 +1,80 @@
+import React, { useEffect, useState } from 'react'
+import { Button, Drawer, Form, Input, DatePicker, Select, Space, Table, message } from 'antd'
+import AppLayout from '../components/AppLayout.jsx'
+import api from '../api/axios'
+
+const EmployeesPage = () => {
+  const [rows, setRows] = useState([])
+  const [loading, setLoading] = useState(false)
+  const [open, setOpen] = useState(false)
+  const [form] = Form.useForm()
+
+  const load = async () => {
+    setLoading(true)
+    try {
+      const { data } = await api.get('/employees?limit=100')
+      setRows(data.data.employees)
+    } catch (e) {
+      message.error('Failed to fetch employees')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { load() }, [])
+
+  const onCreate = async () => {
+    try {
+      const values = await form.validateFields()
+      await api.post('/employees', {
+        ...values,
+        joining_date: values.joining_date.format('YYYY-MM-DD'),
+      })
+      message.success('Employee created')
+      setOpen(false)
+      form.resetFields()
+      load()
+    } catch (e) {
+      if (!e?.errorFields) message.error(e?.response?.data?.message || 'Failed to create employee')
+    }
+  }
+
+  const columns = [
+    { title: 'Emp ID', dataIndex: 'employee_id' },
+    { title: 'Name', dataIndex: 'name' },
+    { title: 'Email', dataIndex: 'email' },
+    { title: 'Dept', dataIndex: 'department' },
+    { title: 'Role', dataIndex: 'role' },
+    { title: 'Gender', dataIndex: 'gender' },
+    { title: 'Joining', dataIndex: 'joining_date' },
+  ]
+
+  return (
+    <AppLayout>
+      <Space style={{ marginBottom: 16 }}>
+        <Button type="primary" onClick={() => setOpen(true)}>Add Employee</Button>
+        <Button onClick={load}>Refresh</Button>
+      </Space>
+      <Table rowKey="id" columns={columns} dataSource={rows} loading={loading} />
+
+      <Drawer title="Add Employee" open={open} onClose={() => setOpen(false)} onOk={onCreate} extra={<Space><Button onClick={() => setOpen(false)}>Cancel</Button><Button type="primary" onClick={onCreate}>Create</Button></Space>}>
+        <Form layout="vertical" form={form}>
+          <Form.Item name="name" label="Name" rules={[{ required: true }]}> <Input /> </Form.Item>
+          <Form.Item name="email" label="Email" rules={[{ required: true, type: 'email' }]}> <Input /> </Form.Item>
+          <Form.Item name="password" label="Password" rules={[{ required: true, min: 6 }]}> <Input.Password /> </Form.Item>
+          <Form.Item name="department" label="Department" rules={[{ required: true }]}> <Input /> </Form.Item>
+          <Form.Item name="role" label="Role" rules={[{ required: true }]} initialValue="employee"> 
+            <Select options={[{value:'employee',label:'Employee'},{value:'hr',label:'HR'}]} />
+          </Form.Item>
+          <Form.Item name="gender" label="Gender"> 
+            <Select allowClear options={[{value:'male',label:'Male'},{value:'female',label:'Female'},{value:'other',label:'Other'}]} />
+          </Form.Item>
+          <Form.Item name="joining_date" label="Joining Date" rules={[{ required: true }]}> <DatePicker style={{ width: '100%' }} /> </Form.Item>
+        </Form>
+      </Drawer>
+    </AppLayout>
+  )
+}
+
+export default EmployeesPage
+

@@ -10,7 +10,8 @@ const employeeSchema = z.object({
     const parsedDate = new Date(date);
     return !isNaN(parsedDate.getTime()) && parsedDate <= new Date();
   }, 'Joining date must be a valid date and cannot be in the future'),
-  role: z.enum(['employee', 'hr', 'admin']).default('employee')
+  role: z.enum(['employee', 'hr', 'admin']).default('employee'),
+  gender: z.enum(['male', 'female', 'other']).optional()
 });
 
 const employeeUpdateSchema = z.object({
@@ -22,7 +23,8 @@ const employeeUpdateSchema = z.object({
     return !isNaN(parsedDate.getTime()) && parsedDate <= new Date();
   }, 'Joining date must be a valid date and cannot be in the future').optional(),
   role: z.enum(['employee', 'hr', 'admin']).optional(),
-  is_active: z.boolean().optional()
+  is_active: z.boolean().optional(),
+  gender: z.enum(['male', 'female', 'other']).optional()
 });
 
 // Leave request validation schemas
@@ -36,6 +38,8 @@ const leaveRequestSchema = z.object({
     const parsedDate = new Date(date);
     return !isNaN(parsedDate.getTime()) && parsedDate >= new Date();
   }, 'End date must be a valid date and cannot be in the past'),
+  is_half_day: z.boolean().optional().default(false),
+  half_day_session: z.enum(['AM', 'PM']).optional(),
   reason: z.string().min(10, 'Reason must be at least 10 characters').max(500, 'Reason cannot exceed 500 characters')
 }).refine((data) => {
   const startDate = new Date(data.start_date);
@@ -44,6 +48,17 @@ const leaveRequestSchema = z.object({
 }, {
   message: 'End date must be after or equal to start date',
   path: ['end_date']
+}).refine((data) => {
+  // If half-day, enforce single day and provide session
+  if (data.is_half_day) {
+    const startDate = new Date(data.start_date);
+    const endDate = new Date(data.end_date);
+    return startDate.toDateString() === endDate.toDateString() && !!data.half_day_session;
+  }
+  return true;
+}, {
+  message: 'Half-day leave must be for a single date and include half_day_session (AM/PM)',
+  path: ['is_half_day']
 });
 
 const leaveRequestUpdateSchema = z.object({

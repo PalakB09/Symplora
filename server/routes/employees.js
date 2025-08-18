@@ -41,7 +41,7 @@ router.get('/', authenticateToken, requireRole(['hr', 'admin']), validateQuery(p
 
     // Get employees
     const [employees] = await pool.execute(`
-      SELECT id, employee_id, name, email, department, role, joining_date, is_active, created_at
+      SELECT id, employee_id, name, email, department, role, gender, joining_date, is_active, created_at
       FROM employees ${whereClause}
       ORDER BY name ASC
       LIMIT ? OFFSET ?
@@ -91,7 +91,7 @@ router.get('/:id', authenticateToken, validateParams(idParamSchema), async (req,
     }
 
     const [employees] = await pool.execute(`
-      SELECT id, employee_id, name, email, department, role, joining_date, is_active, created_at
+      SELECT id, employee_id, name, email, department, role, gender, joining_date, is_active, created_at
       FROM employees WHERE id = ?
     `, [id]);
 
@@ -119,7 +119,7 @@ router.get('/:id', authenticateToken, validateParams(idParamSchema), async (req,
 // Create new employee (HR/Admin only)
 router.post('/', authenticateToken, requireRole(['hr', 'admin']), validateBody(employeeSchema), async (req, res) => {
   try {
-    const { name, email, password, department, joining_date, role } = req.body;
+    const { name, email, password, department, joining_date, role, gender } = req.body;
 
     // Check if email already exists
     const [existingUsers] = await pool.execute(
@@ -152,9 +152,9 @@ router.post('/', authenticateToken, requireRole(['hr', 'admin']), validateBody(e
 
     // Insert employee
     const [result] = await pool.execute(`
-      INSERT INTO employees (employee_id, name, email, password_hash, department, joining_date, role)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `, [employeeId, name, email, passwordHash, department, joining_date, role]);
+      INSERT INTO employees (employee_id, name, email, password_hash, department, joining_date, role, gender)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `, [employeeId, name, email, passwordHash, department, joining_date, role, gender || null]);
 
     // Create leave balances for current year
     const currentYear = getCurrentYear();
@@ -270,7 +270,7 @@ router.put('/:id', authenticateToken, validateParams(idParamSchema), validateBod
 
     // Get updated employee
     const [updatedEmployee] = await pool.execute(`
-      SELECT id, employee_id, name, email, department, role, joining_date, is_active, created_at, updated_at
+      SELECT id, employee_id, name, email, department, role, gender, joining_date, is_active, created_at, updated_at
       FROM employees WHERE id = ?
     `, [id]);
 
@@ -343,13 +343,13 @@ router.get('/:id/leave-balances', authenticateToken, validateParams(idParamSchem
     const currentYear = getCurrentYear();
 
     const [balances] = await pool.execute(`
-      SELECT 
+      SELECT
         lb.id,
         lb.leave_type_id,
         lb.year,
         lb.total_days,
         lb.used_days,
-        lb.remaining_days,
+        (lb.total_days - lb.used_days) AS remaining_days,
         lt.name as leave_type_name,
         lt.color as leave_type_color,
         lt.description as leave_type_description

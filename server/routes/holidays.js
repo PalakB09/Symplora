@@ -45,7 +45,7 @@ router.get('/year/:year', async (req, res) => {
     const [holidays] = await pool.execute(`
       SELECT id, name, date, description, is_active, created_at
       FROM public_holidays
-      WHERE YEAR(date) = ? AND is_active = TRUE
+      WHERE EXTRACT(YEAR FROM date) = ? AND is_active = TRUE
       ORDER BY date ASC
     `, [year]);
 

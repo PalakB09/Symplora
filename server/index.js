@@ -67,8 +67,8 @@ app.use('/api/leave-types', leaveTypeRoutes);
 app.use('/api/holidays', holidayRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 
-// 404 handler
-app.use('*', (req, res) => {
+// 404 handler (Express 5 compatible)
+app.use((req, res) => {
   res.status(404).json({
     success: false,
     message: `Route ${req.originalUrl} not found`

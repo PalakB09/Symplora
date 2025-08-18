@@ -1,29 +1,42 @@
-const mysql = require('mysql2/promise');
+const { Pool } = require('pg');
 require('dotenv').config();
 
-const dbConfig = {
-  host: process.env.DB_HOST || 'localhost',
-  user: process.env.DB_USER || 'root',
-  password: process.env.DB_PASSWORD || '',
-  database: process.env.DB_NAME || 'leave_management_db',
-  port: process.env.DB_PORT || 3306,
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
-  acquireTimeout: 60000,
-  timeout: 60000,
-  reconnect: true
+const dbConfig = process.env.DATABASE_URL
+  ? { connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false }, max: 10 }
+  : {
+      host: process.env.DB_HOST || 'localhost',
+      user: process.env.DB_USER || 'postgres',
+      password: process.env.DB_PASSWORD || '',
+      database: process.env.DB_NAME || 'leave_management_db',
+      port: parseInt(process.env.DB_PORT || '5432', 10),
+      ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
+      max: 10,
+    };
+
+// Create pg pool
+const pgPool = new Pool(dbConfig);
+
+// Minimal mysql2.execute-compatible wrapper for pg
+const pool = {
+  execute: async (query, params = []) => {
+    // convert '?' placeholders to $1, $2, ...
+    let index = 0;
+    const text = query.replace(/\?/g, () => `$${++index}`);
+    const client = await pgPool.connect();
+    try {
+      const res = await client.query(text, params);
+      return [res.rows, res];
+    } finally {
+      client.release();
+    }
+  },
+  query: async (text, params) => pgPool.query(text, params),
 };
 
-// Create connection pool
-const pool = mysql.createPool(dbConfig);
-
-// Test connection
 const testConnection = async () => {
   try {
-    const connection = await pool.getConnection();
+    await pgPool.query('SELECT 1');
     console.log('✅ Database connected successfully');
-    connection.release();
   } catch (error) {
     console.error('❌ Database connection failed:', error.message);
     process.exit(1);

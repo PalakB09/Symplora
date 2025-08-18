@@ -2,31 +2,30 @@ const { pool } = require('./config');
 
 const createTables = async () => {
   try {
-    const connection = await pool.getConnection();
-    
     console.log('🚀 Starting database migration...');
 
     // Create employees table
-    await connection.execute(`
+    await pool.execute(`
       CREATE TABLE IF NOT EXISTS employees (
-        id INT PRIMARY KEY AUTO_INCREMENT,
+        id SERIAL PRIMARY KEY,
         employee_id VARCHAR(10) UNIQUE NOT NULL,
         name VARCHAR(100) NOT NULL,
         email VARCHAR(100) UNIQUE NOT NULL,
         password_hash VARCHAR(255) NOT NULL,
         department VARCHAR(50) NOT NULL,
         joining_date DATE NOT NULL,
-        role ENUM('employee', 'hr', 'admin') DEFAULT 'employee',
+        role VARCHAR(10) DEFAULT 'employee',
+        gender VARCHAR(10) NULL,
         is_active BOOLEAN DEFAULT TRUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )
     `);
 
     // Create leave_types table
-    await connection.execute(`
+    await pool.execute(`
       CREATE TABLE IF NOT EXISTS leave_types (
-        id INT PRIMARY KEY AUTO_INCREMENT,
+        id SERIAL PRIMARY KEY,
         name VARCHAR(50) UNIQUE NOT NULL,
         description TEXT,
         default_days INT NOT NULL,
@@ -36,39 +35,40 @@ const createTables = async () => {
     `);
 
     // Create leave_balances table
-    await connection.execute(`
+    await pool.execute(`
       CREATE TABLE IF NOT EXISTS leave_balances (
-        id INT PRIMARY KEY AUTO_INCREMENT,
+        id SERIAL PRIMARY KEY,
         employee_id INT NOT NULL,
         leave_type_id INT NOT NULL,
         year INT NOT NULL,
-        total_days DECIMAL(5,2) NOT NULL,
-        used_days DECIMAL(5,2) DEFAULT 0,
-        remaining_days DECIMAL(5,2) GENERATED ALWAYS AS (total_days - used_days) STORED,
+        total_days NUMERIC(5,2) NOT NULL,
+        used_days NUMERIC(5,2) DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE (employee_id, leave_type_id, year),
         FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
-        FOREIGN KEY (leave_type_id) REFERENCES leave_types(id) ON DELETE CASCADE,
-        UNIQUE KEY unique_balance (employee_id, leave_type_id, year)
+        FOREIGN KEY (leave_type_id) REFERENCES leave_types(id) ON DELETE CASCADE
       )
     `);
 
     // Create leave_requests table
-    await connection.execute(`
+    await pool.execute(`
       CREATE TABLE IF NOT EXISTS leave_requests (
-        id INT PRIMARY KEY AUTO_INCREMENT,
+        id SERIAL PRIMARY KEY,
         employee_id INT NOT NULL,
         leave_type_id INT NOT NULL,
         start_date DATE NOT NULL,
         end_date DATE NOT NULL,
-        total_days DECIMAL(5,2) NOT NULL,
+        total_days NUMERIC(5,2) NOT NULL,
+        is_half_day BOOLEAN DEFAULT FALSE,
+        half_day_session VARCHAR(2) NULL,
         reason TEXT,
-        status ENUM('pending', 'approved', 'rejected', 'cancelled') DEFAULT 'pending',
+        status VARCHAR(10) DEFAULT 'pending',
         approved_by INT,
         approved_at TIMESTAMP NULL,
         rejection_reason TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
         FOREIGN KEY (leave_type_id) REFERENCES leave_types(id) ON DELETE CASCADE,
         FOREIGN KEY (approved_by) REFERENCES employees(id) ON DELETE SET NULL
@@ -76,9 +76,9 @@ const createTables = async () => {
     `);
 
     // Create public_holidays table
-    await connection.execute(`
+    await pool.execute(`
       CREATE TABLE IF NOT EXISTS public_holidays (
-        id INT PRIMARY KEY AUTO_INCREMENT,
+        id SERIAL PRIMARY KEY,
         name VARCHAR(100) NOT NULL,
         date DATE NOT NULL,
         description TEXT,
@@ -88,9 +88,9 @@ const createTables = async () => {
     `);
 
     // Create audit_logs table
-    await connection.execute(`
+    await pool.execute(`
       CREATE TABLE IF NOT EXISTS audit_logs (
-        id INT PRIMARY KEY AUTO_INCREMENT,
+        id SERIAL PRIMARY KEY,
         user_id INT,
         action VARCHAR(100) NOT NULL,
         table_name VARCHAR(50) NOT NULL,
@@ -107,8 +107,9 @@ const createTables = async () => {
     console.log('✅ All tables created successfully!');
 
     // Insert default leave types
-    await connection.execute(`
-      INSERT IGNORE INTO leave_types (name, description, default_days, color) VALUES
+    await pool.execute(`
+      INSERT INTO leave_types (name, description, default_days, color)
+      VALUES
       ('Annual Leave', 'Regular annual vacation leave', 20, '#10B981'),
       ('Sick Leave', 'Medical and health-related leave', 15, '#EF4444'),
       ('Casual Leave', 'Short personal leave', 10, '#F59E0B'),
@@ -116,23 +117,24 @@ const createTables = async () => {
       ('Paternity Leave', 'Paternity and childcare leave', 15, '#8B5CF6'),
       ('Bereavement Leave', 'Leave for family bereavement', 5, '#6B7280'),
       ('Unpaid Leave', 'Leave without pay', 0, '#9CA3AF')
+      ON CONFLICT (name) DO NOTHING
     `);
 
     console.log('✅ Default leave types inserted!');
 
     // Insert default public holidays (India 2024)
-    await connection.execute(`
-      INSERT IGNORE INTO public_holidays (name, date, description) VALUES
+    await pool.execute(`
+      INSERT INTO public_holidays (name, date, description) VALUES
       ('Republic Day', '2024-01-26', 'National holiday'),
       ('Independence Day', '2024-08-15', 'National holiday'),
       ('Gandhi Jayanti', '2024-10-02', 'National holiday'),
       ('Christmas', '2024-12-25', 'Religious holiday'),
       ('New Year', '2025-01-01', 'New Year holiday')
+      ON CONFLICT (date) DO NOTHING
     `);
 
     console.log('✅ Default public holidays inserted!');
 
-    connection.release();
     console.log('🎉 Database migration completed successfully!');
     process.exit(0);
 
