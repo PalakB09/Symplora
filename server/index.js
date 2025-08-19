@@ -23,10 +23,12 @@ app.set('trust proxy', 1);
 app.use(helmet());
 
 // ✅ CORS configuration (apply BEFORE routes)
-const allowedOrigins = [
-  'https://symplora.vercel.app', // production frontend
-  'http://localhost:3000'        // local dev
-];
+// Read from env var CORS_ORIGINS (comma-separated), otherwise use sensible defaults
+const allowedOrigins = (process.env.CORS_ORIGINS || (
+  process.env.NODE_ENV === 'production'
+    ? 'https://symplora.vercel.app'
+    : 'http://localhost:3000'
+)).split(',').map(s => s.trim()).filter(Boolean)
 
 app.use(cors({
   origin: allowedOrigins,
