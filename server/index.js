@@ -1,48 +1,65 @@
-const express = require('express');
-const cors = require('cors');
-const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
-require('dotenv').config();
+const express = require("express");
+const cors = require("cors");
+const helmet = require("helmet");
+const rateLimit = require("express-rate-limit");
+require("dotenv").config();
+const path = require("path");
 
-const { testConnection } = require('./database/config');
+const { testConnection } = require("./database/config");
 
 // Import routes
-const authRoutes = require('./routes/auth');
-const employeeRoutes = require('./routes/employees');
-const leaveRoutes = require('./routes/leaves');
-const leaveTypeRoutes = require('./routes/leaveTypes');
-const holidayRoutes = require('./routes/holidays');
-// const dashboardRoutes = require('./routes/dashboard'); // optional, not present yet
+const authRoutes = require("./routes/auth");
+const employeeRoutes = require("./routes/employees");
+const leaveRoutes = require("./routes/leaves");
+const leaveTypeRoutes = require("./routes/leaveTypes");
+const holidayRoutes = require("./routes/holidays");
 
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-app.set('trust proxy', 1);
+app.set("trust proxy", 1);
+
 // Security middleware
 app.use(helmet());
 
-// CORS configuration
-app.use(cors({
-  origin: process.env.NODE_ENV === 'production' 
-    ? ['https://symplora.vercel.app'] 
-    : ['http://localhost:3000'],
-  credentials: true
-}));
+// ✅ CORS configuration
+const allowedOrigins = [
+  "http://localhost:3000",
+  "https://symplora.vercel.app",
+];
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      if (!origin) return callback(null, true); // allow curl, postman, etc.
+      if (allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error("Not allowed by CORS"));
+      }
+    },
+    methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    credentials: true,
+  })
+);
+
+// ✅ Ensure preflight (OPTIONS) requests are handled
+app.options("*", cors());
 
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  max: 100,
   message: {
     success: false,
-    message: 'Too many requests from this IP, please try again later.'
-  }
+    message: "Too many requests from this IP, please try again later.",
+  },
 });
-app.use('/api/', limiter);
+app.use("/api/", limiter);
 
 // Body parsing middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
 // Request logging middleware
 app.use((req, res, next) => {
@@ -51,85 +68,91 @@ app.use((req, res, next) => {
 });
 
 // Health check endpoint
-app.get('/health', (req, res) => {
-  res.json({ 
-    success: true, 
-    message: 'Leave Management System API is running',
+app.get("/health", (req, res) => {
+  res.json({
+    success: true,
+    message: "Leave Management System API is running",
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || "development",
   });
 });
 
 // API routes
-app.use('/api/auth', authRoutes);
-app.use('/api/employees', employeeRoutes);
-app.use('/api/leaves', leaveRoutes);
-app.use('/api/leave-types', leaveTypeRoutes);
-app.use('/api/holidays', holidayRoutes);
-// app.use('/api/dashboard', dashboardRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/api/employees", employeeRoutes);
+app.use("/api/leaves", leaveRoutes);
+app.use("/api/leave-types", leaveTypeRoutes);
+app.use("/api/holidays", holidayRoutes);
 
-// 404 handler (Express 5 compatible)
-app.use((req, res) => {
+// ✅ Serve frontend (fix for Vercel refresh 404)
+if (process.env.NODE_ENV === "production") {
+  const frontendPath = path.join(__dirname, "public");
+  app.use(express.static(frontendPath));
+
+  // Handle SPA routes
+  app.get("*", (req, res) => {
+    res.sendFile(path.join(frontendPath, "index.html"));
+  });
+}
+
+// 404 handler for API only
+app.use("/api/*", (req, res) => {
   res.status(404).json({
     success: false,
-    message: `Route ${req.originalUrl} not found`
+    message: `API Route ${req.originalUrl} not found`,
   });
 });
 
 // Global error handler
 app.use((error, req, res, next) => {
-  console.error('Global error handler:', error);
+  console.error("Global error handler:", error);
 
-  // Handle specific error types
-  if (error.name === 'ValidationError') {
+  if (error.name === "ValidationError") {
     return res.status(400).json({
       success: false,
-      message: 'Validation error',
-      errors: error.errors
+      message: "Validation error",
+      errors: error.errors,
     });
   }
 
-  if (error.name === 'UnauthorizedError') {
+  if (error.name === "UnauthorizedError") {
     return res.status(401).json({
       success: false,
-      message: 'Unauthorized access'
+      message: "Unauthorized access",
     });
   }
 
-  // Default error response
   res.status(error.status || 500).json({
     success: false,
-    message: error.message || 'Internal server error',
-    ...(process.env.NODE_ENV === 'development' && { stack: error.stack })
+    message: error.message || "Internal server error",
+    ...(process.env.NODE_ENV === "development" && { stack: error.stack }),
   });
 });
 
 // Start server
 const startServer = async () => {
   try {
-    // Test database connection
     await testConnection();
-    
+
     app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
-      console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
+      console.log(`📊 Environment: ${process.env.NODE_ENV || "development"}`);
       console.log(`🔗 Health check: http://localhost:${PORT}/health`);
-      console.log(`📚 API Documentation: http://localhost:${PORT}/api`);
     });
   } catch (error) {
-    console.error('❌ Failed to start server:', error);
+    console.error("❌ Failed to start server:", error);
     process.exit(1);
   }
 };
 
 // Graceful shutdown
-process.on('SIGTERM', () => {
-  console.log('SIGTERM received, shutting down gracefully');
+process.on("SIGTERM", () => {
+  console.log("SIGTERM received, shutting down gracefully");
   process.exit(0);
 });
 
-process.on('SIGINT', () => {
-  console.log('SIGINT received, shutting down gracefully');
+process.on("SIGINT", () => {
+  console.log("SIGINT received, shutting down gracefully");
   process.exit(0);
 });
 
