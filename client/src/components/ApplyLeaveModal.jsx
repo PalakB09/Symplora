@@ -5,7 +5,7 @@ import api from '../api/axios'
 
 const { RangePicker } = DatePicker
 
-const ApplyLeaveModal = ({ open, onClose, onSuccess }) => {
+const ApplyLeaveModal = ({ open, onClose, onSuccess, employeeId }) => {
   const [form] = Form.useForm()
   const [leaveTypes, setLeaveTypes] = useState([])
   const [holidays, setHolidays] = useState([])
@@ -57,7 +57,11 @@ const ApplyLeaveModal = ({ open, onClose, onSuccess }) => {
         payload.start_date = values.dates[0].format('YYYY-MM-DD')
         payload.end_date = values.dates[1].format('YYYY-MM-DD')
       }
-      await api.post('/leaves', payload)
+      if (employeeId) {
+        await api.post(`/leaves/employee/${employeeId}`, payload)
+      } else {
+        await api.post('/leaves', payload)
+      }
       message.success('Leave applied successfully')
       form.resetFields()
       onSuccess?.()

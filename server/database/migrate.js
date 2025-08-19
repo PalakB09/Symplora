@@ -5,7 +5,7 @@ const createTables = async () => {
     console.log('🚀 Starting database migration...');
 
     // Create employees table
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS employees (
         id SERIAL PRIMARY KEY,
         employee_id VARCHAR(10) UNIQUE NOT NULL,
@@ -23,7 +23,7 @@ const createTables = async () => {
     `);
 
     // Create leave_types table
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS leave_types (
         id SERIAL PRIMARY KEY,
         name VARCHAR(50) UNIQUE NOT NULL,
@@ -35,7 +35,7 @@ const createTables = async () => {
     `);
 
     // Create leave_balances table
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS leave_balances (
         id SERIAL PRIMARY KEY,
         employee_id INT NOT NULL,
@@ -52,7 +52,7 @@ const createTables = async () => {
     `);
 
     // Create leave_requests table
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS leave_requests (
         id SERIAL PRIMARY KEY,
         employee_id INT NOT NULL,
@@ -76,19 +76,20 @@ const createTables = async () => {
     `);
 
     // Create public_holidays table
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS public_holidays (
-        id SERIAL PRIMARY KEY,
-        name VARCHAR(100) NOT NULL,
-        date DATE NOT NULL,
-        description TEXT,
-        is_active BOOLEAN DEFAULT TRUE,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      )
+      id SERIAL PRIMARY KEY,
+      name VARCHAR(100) NOT NULL,
+      date DATE NOT NULL UNIQUE,
+      description TEXT,
+      is_active BOOLEAN DEFAULT TRUE,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+
     `);
 
     // Create audit_logs table
-    await pool.execute(`
+    await pool.query(`
       CREATE TABLE IF NOT EXISTS audit_logs (
         id SERIAL PRIMARY KEY,
         user_id INT,
@@ -107,15 +108,13 @@ const createTables = async () => {
     console.log('✅ All tables created successfully!');
 
     // Insert default leave types
-    await pool.execute(`
+    await pool.query(`
       INSERT INTO leave_types (name, description, default_days, color)
       VALUES
-      ('Annual Leave', 'Regular annual vacation leave', 20, '#10B981'),
-      ('Sick Leave', 'Medical and health-related leave', 15, '#EF4444'),
-      ('Casual Leave', 'Short personal leave', 10, '#F59E0B'),
+      ('Annual Leave', 'Regular annual vacation leave', 24, '#10B981'),
+      ('Sick Leave', 'Medical and health-related leave', 10, '#EF4444'),
+      ('Casual Leave', 'Short personal leave', 8, '#F59E0B'),
       ('Maternity Leave', 'Maternity and childcare leave', 180, '#EC4899'),
-      ('Paternity Leave', 'Paternity and childcare leave', 15, '#8B5CF6'),
-      ('Bereavement Leave', 'Leave for family bereavement', 5, '#6B7280'),
       ('Unpaid Leave', 'Leave without pay', 0, '#9CA3AF')
       ON CONFLICT (name) DO NOTHING
     `);
@@ -123,7 +122,7 @@ const createTables = async () => {
     console.log('✅ Default leave types inserted!');
 
     // Insert default public holidays (India 2024)
-    await pool.execute(`
+    await pool.query(`
       INSERT INTO public_holidays (name, date, description) VALUES
       ('Republic Day', '2024-01-26', 'National holiday'),
       ('Independence Day', '2024-08-15', 'National holiday'),

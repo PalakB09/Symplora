@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react'
-import { Button, Modal, Space, Table, Tag, Typography, Input, message } from 'antd'
+import { Button, Modal, Space, Table, Tag, Typography, Input, message, Select } from 'antd'
+import StatusTag from '../components/StatusTag.jsx'
 import AppLayout from '../components/AppLayout.jsx'
 import api from '../api/axios'
 import { useAuth } from '../context/AuthContext.jsx'
+import RequestDetailsDrawer from '../components/RequestDetailsDrawer.jsx'
 
 const { Title } = Typography
 
@@ -10,20 +12,23 @@ const ApprovalsPage = () => {
   const { user } = useAuth()
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(false)
+  const [detailsId, setDetailsId] = useState(null)
+  const [filters, setFilters] = useState({ status: 'pending' })
 
   const load = async () => {
     setLoading(true)
     try {
-      const { data } = await api.get('/leaves?limit=100&status=pending')
+      const params = new URLSearchParams({ limit: '100', ...(filters.status ? { status: filters.status } : {}) })
+      const { data } = await api.get(`/leaves?${params.toString()}`)
       setRows(data.data.leaveRequests)
     } catch (e) {
-      message.error('Failed to fetch pending requests')
+      message.error('Failed to fetch requests')
     } finally {
       setLoading(false)
     }
   }
 
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [filters])
 
   const approve = async (id) => {
     try {
@@ -66,13 +71,14 @@ const ApprovalsPage = () => {
   const columns = [
     { title: 'Employee', dataIndex: 'employee_name' },
     { title: 'Type', dataIndex: 'leave_type_name' },
-    { title: 'Start', dataIndex: 'start_date' },
-    { title: 'End', dataIndex: 'end_date' },
+    { title: 'Start', dataIndex: 'start_date', render: (v)=> new Date(v).toLocaleDateString() },
+    { title: 'End', dataIndex: 'end_date', render: (v)=> new Date(v).toLocaleDateString() },
     { title: 'Days', dataIndex: 'total_days' },
     { title: 'Half Day', dataIndex: 'is_half_day', render: v => v ? 'Yes' : 'No' },
-    { title: 'Status', dataIndex: 'status', render: (s) => <Tag color={s==='approved'?'green':s==='rejected'?'red':s==='pending'?'orange':'default'}>{s}</Tag> },
+    { title: 'Status', dataIndex: 'status', render: (s) => <StatusTag status={s} /> },
     { title: 'Action', key: 'action', render: (_, r) => (
       <Space>
+        <Button onClick={() => setDetailsId(r.id)}>View</Button>
         <Button type="primary" onClick={() => approve(r.id)}>Approve</Button>
         <Button danger onClick={() => reject(r.id)}>Reject</Button>
       </Space>
@@ -81,8 +87,25 @@ const ApprovalsPage = () => {
 
   return (
     <AppLayout>
-      <Title level={3}>Approvals</Title>
-      <Table rowKey="id" columns={columns} dataSource={rows} loading={loading} />
+      <div className="page-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Title level={3} style={{ margin: 0 }}>Approvals</Title>
+        <Space>
+          <Select
+            value={filters.status}
+            style={{ width: 160 }}
+            onChange={(v)=> setFilters(f=>({ ...f, status: v }))}
+            options={[
+              { value: 'pending', label: 'Pending' },
+              { value: 'approved', label: 'Approved' },
+              { value: 'rejected', label: 'Rejected' },
+              { value: '', label: 'All' },
+            ]}
+          />
+          <Button onClick={load}>Refresh</Button>
+        </Space>
+      <RequestDetailsDrawer id={detailsId} open={!!detailsId} onClose={()=> setDetailsId(null)} afterAction={load} />
+      </div>
+      <Table rowKey="id" columns={columns} dataSource={rows} loading={loading} pagination={{ pageSize: 10 }} />
     </AppLayout>
   )
 }

@@ -12,7 +12,7 @@ const employeeRoutes = require('./routes/employees');
 const leaveRoutes = require('./routes/leaves');
 const leaveTypeRoutes = require('./routes/leaveTypes');
 const holidayRoutes = require('./routes/holidays');
-const dashboardRoutes = require('./routes/dashboard');
+// const dashboardRoutes = require('./routes/dashboard'); // optional, not present yet
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -65,7 +65,7 @@ app.use('/api/employees', employeeRoutes);
 app.use('/api/leaves', leaveRoutes);
 app.use('/api/leave-types', leaveTypeRoutes);
 app.use('/api/holidays', holidayRoutes);
-app.use('/api/dashboard', dashboardRoutes);
+// app.use('/api/dashboard', dashboardRoutes);
 
 // 404 handler (Express 5 compatible)
 app.use((req, res) => {

@@ -3,6 +3,8 @@ import { Card, Col, Row, Statistic, Tag, Typography, message } from 'antd'
 import AppLayout from '../components/AppLayout.jsx'
 import api from '../api/axios'
 import { useAuth } from '../context/AuthContext.jsx'
+import KPICard from '../components/KPICard.jsx'
+import LeaveTypeDonut from '../components/LeaveTypeDonut.jsx'
 
 const { Title } = Typography
 
@@ -32,15 +34,23 @@ const DashboardPage = () => {
 
   return (
     <AppLayout>
-      <Title level={3}>Dashboard</Title>
+      <div className="page-header">
+        <Title level={3} style={{ margin: 0 }}>Dashboard</Title>
+      </div>
       <Row gutter={[16, 16]}>
         {data.statusBreakdown.map((s) => (
           <Col xs={24} md={8} key={s.status}>
-            <Card>
-              <Statistic title={<Tag color={getStatus(s.status)}>{s.status}</Tag>} value={s.count} suffix={`(${s.total_days} days)`} />
-            </Card>
+            <KPICard title={<Tag color={getStatus(s.status)}>{s.status}</Tag>} value={s.count} suffix={` (${Number(s.total_days || 0).toFixed(2)} days)`} color={getStatus(s.status)==='success'?'#52c41a':getStatus(s.status)==='warning'?'#faad14':getStatus(s.status)==='error'?'#ff4d4f':'#d9d9d9'} />
           </Col>
         ))}
+      </Row>
+
+      <Row gutter={[16, 16]} style={{ marginTop: 8 }}>
+        <Col xs={24} md={12}>
+          <Card title="Leave Types (Days)">
+            <LeaveTypeDonut data={data.leaveTypeBreakdown} />
+          </Card>
+        </Col>
       </Row>
     </AppLayout>
   )

@@ -10,7 +10,7 @@ const router = express.Router();
 router.get('/', async (req, res) => {
   try {
     const [leaveTypes] = await pool.execute(`
-      SELECT id, name, description, default_days, color, is_active, created_at
+      SELECT id, name, description, default_days, color, is_active
       FROM leave_types
       WHERE is_active = TRUE
       ORDER BY name ASC
@@ -36,7 +36,7 @@ router.get('/:id', validateParams(idParamSchema), async (req, res) => {
     const { id } = req.params;
 
     const [leaveTypes] = await pool.execute(`
-      SELECT id, name, description, default_days, color, is_active, created_at
+      SELECT id, name, description, default_days, color, is_active
       FROM leave_types WHERE id = ?
     `, [id]);
 
@@ -95,7 +95,7 @@ router.post('/', authenticateToken, requireRole(['hr', 'admin']), async (req, re
 
     // Get created leave type
     const [newLeaveType] = await pool.execute(`
-      SELECT id, name, description, default_days, color, is_active, created_at
+      SELECT id, name, description, default_days, color, is_active
       FROM leave_types WHERE id = ?
     `, [result.insertId]);
 
@@ -176,7 +176,7 @@ router.put('/:id', authenticateToken, requireRole(['hr', 'admin']), validatePara
 
     // Get updated leave type
     const [updatedLeaveType] = await pool.execute(`
-      SELECT id, name, description, default_days, color, is_active, created_at
+      SELECT id, name, description, default_days, color, is_active
       FROM leave_types WHERE id = ?
     `, [id]);
 

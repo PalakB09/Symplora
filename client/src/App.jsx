@@ -8,6 +8,7 @@ import BalancesPage from './pages/BalancesPage.jsx'
 import CalendarPage from './pages/CalendarPage.jsx'
 import ApprovalsPage from './pages/ApprovalsPage.jsx'
 import EmployeesPage from './pages/EmployeesPage.jsx'
+import LeaveTypesPage from './pages/LeaveTypesPage.jsx'
 
 const Protected = () => {
   const { token } = useAuth()
@@ -23,6 +24,7 @@ const App = () => {
         <Route element={<Protected />}>
           <Route path="/" element={<DashboardPage />} />
           <Route path="/leaves" element={<LeavesPage />} />
+          <Route path="/leave-types" element={<LeaveTypesPage />} />
           <Route path="/balances" element={<BalancesPage />} />
           <Route path="/calendar" element={<CalendarPage />} />
           <Route path="/approvals" element={<ApprovalsPage />} />

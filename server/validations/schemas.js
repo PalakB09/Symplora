@@ -100,11 +100,12 @@ const publicHolidaySchema = z.object({
 
 // Pagination and filtering schemas
 const paginationSchema = z.object({
-  page: z.number().int().min(1).default(1),
-  limit: z.number().int().min(1).max(100).default(10),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(10),
   search: z.string().optional(),
   department: z.string().optional(),
   status: z.string().optional(),
+  employee_id: z.coerce.number().int().positive().optional(),
   start_date: z.string().optional(),
   end_date: z.string().optional()
 });

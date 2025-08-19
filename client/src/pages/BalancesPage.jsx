@@ -24,15 +24,22 @@ const BalancesPage = () => {
 
   return (
     <AppLayout>
-      <Title level={3}>My Leave Balance</Title>
+      <div className="page-header">
+        <Title level={3} style={{ margin: 0 }}>My Leave Balance</Title>
+      </div>
       <List
         dataSource={balances}
         renderItem={(item) => (
           <List.Item>
             <List.Item.Meta title={item.leave_type_name} description={item.leave_type_description} />
-            <div style={{ width: 300 }}>
-              <Progress percent={Math.round(((item.used_days || 0) / (item.total_days || 1)) * 100)} />
-              <div style={{ textAlign: 'right' }}>{(item.total_days - item.used_days).toFixed(1)} remaining / {item.total_days}</div>
+            <div style={{ width: 360 }}>
+              <Progress
+                percent={Math.round(((item.used_days || 0) / Math.max(item.total_days || 1, 1)) * 100)}
+                strokeColor={item.leave_type_color || '#1677ff'}
+              />
+              <div style={{ textAlign: 'right', fontSize: 12, color: '#6b7280' }}>
+                {(item.total_days - item.used_days).toFixed(1)} remaining / {item.total_days}
+              </div>
             </div>
           </List.Item>
         )}

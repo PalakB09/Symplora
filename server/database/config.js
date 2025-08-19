@@ -1,20 +1,37 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
-const dbConfig = process.env.DATABASE_URL
-  ? { connectionString: process.env.DATABASE_URL, ssl: { rejectUnauthorized: false }, max: 10 }
-  : {
-      host: process.env.DB_HOST || 'localhost',
-      user: process.env.DB_USER || 'postgres',
-      password: process.env.DB_PASSWORD || '',
-      database: process.env.DB_NAME || 'leave_management_db',
-      port: parseInt(process.env.DB_PORT || '5432', 10),
-      ssl: process.env.DB_SSL === 'true' ? { rejectUnauthorized: false } : undefined,
-      max: 10,
+function buildPgConfig() {
+  if (process.env.DATABASE_URL) {
+    const shouldUseSSL =
+      /^true$/i.test(process.env.DB_SSL || '') ||
+      /supabase|render|heroku/i.test(process.env.DATABASE_URL);
+
+    return {
+      connectionString: process.env.DATABASE_URL,
+      ssl: shouldUseSSL ? { rejectUnauthorized: false } : false,
+      max: parseInt(process.env.DB_POOL_MAX || '10', 10),
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 60000,
     };
+  }
+
+  return {
+    host: process.env.DB_HOST || 'localhost',
+    user: process.env.DB_USER || 'postgres',
+    password: process.env.DB_PASSWORD || '',
+    database: process.env.DB_NAME || 'leave_management_db',
+    port: parseInt(process.env.DB_PORT || '5432', 10),
+    ssl: /^true$/i.test(process.env.DB_SSL || '') ? { rejectUnauthorized: false } : false,
+    max: parseInt(process.env.DB_POOL_MAX || '10', 10),
+    idleTimeoutMillis: 30000,
+    connectionTimeoutMillis: 60000,
+  };
+}
+
 
 // Create pg pool
-const pgPool = new Pool(dbConfig);
+const pgPool = new Pool(buildPgConfig());
 
 // Minimal mysql2.execute-compatible wrapper for pg
 const pool = {

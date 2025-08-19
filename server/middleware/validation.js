@@ -39,8 +39,9 @@ const validate = (schema) => {
       next();
     } catch (error) {
       if (error instanceof ZodError) {
-        const validationErrors = error.errors.map(err => ({
-          field: err.path.join('.'),
+        const issues = error.issues || error.errors || [];
+        const validationErrors = issues.map(err => ({
+          field: Array.isArray(err.path) ? err.path.join('.') : String(err.path ?? ''),
           message: err.message
         }));
 
@@ -69,8 +70,9 @@ const validateParams = (schema) => {
       next();
     } catch (error) {
       if (error instanceof ZodError) {
-        const validationErrors = error.errors.map(err => ({
-          field: err.path.join('.'),
+        const issues = error.issues || error.errors || [];
+        const validationErrors = issues.map(err => ({
+          field: Array.isArray(err.path) ? err.path.join('.') : String(err.path ?? ''),
           message: err.message
         }));
 
@@ -95,8 +97,9 @@ const validateBody = (schema) => {
       next();
     } catch (error) {
       if (error instanceof ZodError) {
-        const validationErrors = error.errors.map(err => ({
-          field: err.path.join('.'),
+        const issues = error.issues || error.errors || [];
+        const validationErrors = issues.map(err => ({
+          field: Array.isArray(err.path) ? err.path.join('.') : String(err.path ?? ''),
           message: err.message
         }));
 
@@ -121,8 +124,9 @@ const validateQuery = (schema) => {
       next();
     } catch (error) {
       if (error instanceof ZodError) {
-        const validationErrors = error.errors.map(err => ({
-          field: err.path.join('.'),
+        const issues = error.issues || error.errors || [];
+        const validationErrors = issues.map(err => ({
+          field: Array.isArray(err.path) ? err.path.join('.') : String(err.path ?? ''),
           message: err.message
         }));
 

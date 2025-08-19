@@ -2,14 +2,14 @@ const express = require('express');
 const { pool } = require('../database/config');
 const { authenticateToken, requireRole, requireOwnershipOrRole } = require('../middleware/auth');
 const { validateBody, validateParams, validateQuery } = require('../middleware/validation');
-const { 
-  leaveRequestSchema, 
-  leaveRequestUpdateSchema, 
+const {
+  leaveRequestSchema,
+  leaveRequestUpdateSchema,
   paginationSchema,
   idParamSchema,
   dateRangeSchema
 } = require('../validations/schemas');
-const { 
+const {
   calculateWorkingDays,
   isPastDate,
   getCurrentYear,
@@ -33,6 +33,10 @@ router.get('/', authenticateToken, validateQuery(paginationSchema), async (req, 
     if (req.user.role !== 'hr' && req.user.role !== 'admin') {
       whereClause += ' AND lr.employee_id = ?';
       params.push(req.user.id);
+    } else if (req.query.employee_id) {
+      // HR filter by employee
+      whereClause += ' AND lr.employee_id = ?';
+      params.push(req.query.employee_id);
     }
 
     if (status) {
@@ -52,8 +56,8 @@ router.get('/', authenticateToken, validateQuery(paginationSchema), async (req, 
 
     // Get total count
     const [countResult] = await pool.execute(`
-      SELECT COUNT(*) as total 
-      FROM leave_requests lr 
+      SELECT COUNT(*) as total
+      FROM leave_requests lr
       ${whereClause}
     `, params);
     const total = countResult[0].total;
@@ -169,7 +173,6 @@ router.get('/:id', authenticateToken, validateParams(idParamSchema), async (req,
       success: true,
       data: leaveRequest
     });
-
   } catch (error) {
     console.error('Get leave request error:', error);
     res.status(500).json({
@@ -178,6 +181,91 @@ router.get('/:id', authenticateToken, validateParams(idParamSchema), async (req,
     });
   }
 });
+
+    // HR: apply on behalf of an employee
+// HR: apply on behalf of an employee
+router.post('/employee/:id', authenticateToken, requireRole(['hr','admin']), validateParams(idParamSchema), validateBody(leaveRequestSchema), async (req, res) => {
+  try {
+    const employeeId = parseInt(req.params.id)
+    // Mimic same validations as normal apply, but use employeeId instead of req.user.id
+    const { leave_type_id, start_date, end_date, reason, is_half_day, half_day_session } = req.body
+
+    if (isPastDate(start_date) || isPastDate(end_date)) {
+      return res.status(400).json({ success: false, message: 'Cannot apply for leave in the past' })
+    }
+
+    const [employees] = await pool.execute(`SELECT id, joining_date, gender FROM employees WHERE id = ? AND is_active = TRUE`, [employeeId])
+    if (!employees.length) return res.status(404).json({ success: false, message: 'Employee not found or inactive' })
+    const employee = employees[0]
+
+    if (new Date(start_date) < new Date(employee.joining_date)) {
+      return res.status(400).json({ success: false, message: 'Cannot apply for leave before joining date' })
+    }
+
+    const startYear = new Date(start_date).getFullYear();
+    const endYear = new Date(end_date).getFullYear();
+    if (startYear !== endYear) {
+      return res.status(400).json({ success: false, message: 'For now, please apply within a single calendar year' })
+    }
+
+    if (is_half_day) {
+      const sameDay = new Date(start_date)
+      if (!isWorkingDay(sameDay)) return res.status(400).json({ success: false, message: 'Half-day leave must be on a working day (Mon-Fri)' })
+      const holiday = await isPublicHoliday(sameDay)
+      if (holiday) return res.status(400).json({ success: false, message: 'Half-day leave cannot be on a public holiday' })
+    }
+
+    const [overlappingRequests] = await pool.execute(`
+      SELECT id FROM leave_requests
+      WHERE employee_id = ?
+      AND status IN ('pending', 'approved')
+      AND ( (start_date BETWEEN ? AND ?) OR (end_date BETWEEN ? AND ?) OR (start_date <= ? AND end_date >= ?) )
+    `, [employeeId, start_date, end_date, start_date, end_date, start_date, end_date])
+    if (overlappingRequests.length) return res.status(400).json({ success: false, message: 'Overlapping leave requests exist for these dates' })
+
+    let totalDays = await calculateWorkingDays(start_date, end_date)
+    if (is_half_day) totalDays = 0.5
+    if (totalDays <= 0) return res.status(400).json({ success: false, message: 'Invalid date range or no working days selected' })
+
+    const currentYear = getCurrentYear()
+    const [leaveBalance] = await pool.execute(`
+      SELECT (lb.total_days - lb.used_days) AS remaining_days, lt.name as leave_type_name
+      FROM leave_balances lb
+      JOIN leave_types lt ON lb.leave_type_id = lt.id
+      WHERE lb.employee_id = ? AND lb.leave_type_id = ? AND lb.year = ?
+    `, [employeeId, leave_type_id, currentYear])
+    if (!leaveBalance.length) return res.status(400).json({ success: false, message: 'Leave balance not found for this leave type' })
+
+    const [ltRows] = await pool.execute('SELECT name, is_active FROM leave_types WHERE id = ?', [leave_type_id])
+    if (!ltRows.length || ltRows[0].is_active === false) return res.status(400).json({ success: false, message: 'Invalid or inactive leave type' })
+    const ltName = ltRows[0].name.toLowerCase()
+
+    if (ltName.includes('maternity') && employee.gender !== 'female') return res.status(400).json({ success: false, message: 'Maternity leave only for female employees' })
+    if (ltName.includes('paternity') && employee.gender !== 'male') return res.status(400).json({ success: false, message: 'Paternity leave only for male employees' })
+    if ((ltName.includes('maternity') || ltName.includes('paternity')) && is_half_day) return res.status(400).json({ success: false, message: 'Half-day not allowed for Maternity/Paternity leave' })
+
+    const isUnpaid = ltName.includes('unpaid')
+    if (!isUnpaid && leaveBalance[0].remaining_days < totalDays) return res.status(400).json({ success: false, message: `Insufficient leave balance. Remaining ${leaveBalance[0].remaining_days} days` })
+
+    const [result] = await pool.execute(`
+      INSERT INTO leave_requests (employee_id, leave_type_id, start_date, end_date, total_days, is_half_day, half_day_session, reason)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `, [employeeId, leave_type_id, start_date, end_date, totalDays, !!is_half_day, is_half_day ? half_day_session : null, reason])
+
+    const [newLeaveRequest] = await pool.execute(`
+      SELECT lr.*, e.name as employee_name, lt.name as leave_type_name
+      FROM leave_requests lr JOIN employees e ON lr.employee_id = e.id JOIN leave_types lt ON lr.leave_type_id = lt.id
+      WHERE lr.id = ?
+    `, [result.insertId])
+
+    res.status(201).json({ success: true, message: 'Leave created for employee', data: newLeaveRequest[0] })
+  } catch (error) {
+    console.error('HR apply on behalf error:', error)
+    res.status(500).json({ success: false, message: 'Internal server error' })
+  }
+})
+
+
 
 // Apply for leave
 router.post('/', authenticateToken, validateBody(leaveRequestSchema), async (req, res) => {
@@ -214,6 +302,16 @@ router.post('/', authenticateToken, validateBody(leaveRequestSchema), async (req
       });
     }
 
+    // Edge Case 3c: MVP restriction — do not allow cross-year requests (balances are annual)
+    const startYear = new Date(start_date).getFullYear();
+    const endYear = new Date(end_date).getFullYear();
+    if (startYear !== endYear) {
+      return res.status(400).json({
+        success: false,
+        message: 'For now, please apply within a single calendar year'
+      });
+    }
+
     // Edge Case 3b: If half-day, must be a working day and not a public holiday
     if (is_half_day) {
       const sameDay = new Date(start_date);
@@ -228,8 +326,8 @@ router.post('/', authenticateToken, validateBody(leaveRequestSchema), async (req
 
     // Edge Case 4: Check for overlapping leave requests
     const [overlappingRequests] = await pool.execute(`
-      SELECT id FROM leave_requests 
-      WHERE employee_id = ? 
+      SELECT id FROM leave_requests
+      WHERE employee_id = ?
       AND status IN ('pending', 'approved')
       AND (
         (start_date BETWEEN ? AND ?) OR
@@ -279,7 +377,10 @@ router.post('/', authenticateToken, validateBody(leaveRequestSchema), async (req
     // Additional constraints for maternity/paternity
     // - Maternity: only female employees
     // - Paternity: only male employees
-    const [ltRows] = await pool.execute('SELECT name FROM leave_types WHERE id = ?', [leave_type_id]);
+    const [ltRows] = await pool.execute('SELECT name, is_active FROM leave_types WHERE id = ?', [leave_type_id]);
+    if (!ltRows.length || ltRows[0].is_active === false) {
+      return res.status(400).json({ success: false, message: 'Invalid or inactive leave type' });
+    }
     const ltName = ltRows.length ? ltRows[0].name.toLowerCase() : '';
     if (ltName.includes('maternity') && employee.gender !== 'female') {
       return res.status(400).json({ success: false, message: 'Maternity leave is available only to female employees' });
@@ -359,6 +460,7 @@ router.patch('/:id/status', authenticateToken, requireRole(['hr']), validatePara
       WHERE lr.id = ?
     `, [id]);
 
+
     if (leaveRequests.length === 0) {
       return res.status(404).json({
         success: false,
@@ -391,11 +493,35 @@ router.patch('/:id/status', authenticateToken, requireRole(['hr']), validatePara
       WHERE id = ?
     `, [status, req.user.id, rejection_reason || null, id]);
 
-    // If approved, update leave balance
+    // If approved, run safety checks then update leave balance
     if (status === 'approved') {
+      // Prevent overlaps with other approved leaves (defensive if multiple HRs act)
+      const [overlaps] = await pool.execute(`
+        SELECT id FROM leave_requests
+        WHERE employee_id = ? AND status = 'approved' AND id != ?
+          AND ((start_date BETWEEN ? AND ?) OR (end_date BETWEEN ? AND ?) OR (start_date <= ? AND end_date >= ?))
+      `, [leaveRequest.employee_id, id, leaveRequest.start_date, leaveRequest.end_date, leaveRequest.start_date, leaveRequest.end_date, leaveRequest.start_date, leaveRequest.end_date]);
+      if (overlaps.length > 0) {
+        return res.status(400).json({ success: false, message: 'Overlaps with an already approved leave' });
+      }
+
+      // Re-check balance at approval time (unless unpaid)
+      const unpaid = (leaveRequest.leave_type_name || '').toLowerCase().includes('unpaid');
+      if (!unpaid) {
+        const [bal] = await pool.execute(`
+          SELECT (total_days - used_days) AS remaining
+          FROM leave_balances
+          WHERE employee_id = ? AND leave_type_id = ? AND year = ?
+        `, [leaveRequest.employee_id, leaveRequest.leave_type_id, new Date().getFullYear()]);
+        if (!bal.length || Number(bal[0].remaining) < Number(leaveRequest.total_days)) {
+          return res.status(400).json({ success: false, message: 'Insufficient balance at approval time' });
+        }
+      }
+
+      // Update balance
       await pool.execute(`
-        UPDATE leave_balances 
-        SET used_days = used_days + ? 
+        UPDATE leave_balances
+        SET used_days = used_days + ?
         WHERE employee_id = ? AND leave_type_id = ? AND year = ?
       `, [leaveRequest.total_days, leaveRequest.employee_id, leaveRequest.leave_type_id, new Date().getFullYear()]);
     }
@@ -479,7 +605,7 @@ router.patch('/:id/cancel', authenticateToken, validateParams(idParamSchema), as
 
     // Cancel the request
     await pool.execute(`
-      UPDATE leave_requests 
+      UPDATE leave_requests
       SET status = 'cancelled', updated_at = CURRENT_TIMESTAMP
       WHERE id = ?
     `, [id]);
@@ -513,7 +639,7 @@ router.get('/stats/overview', authenticateToken, async (req, res) => {
 
     // Get leave statistics
     const [stats] = await pool.execute(`
-      SELECT 
+      SELECT
         lr.status,
         COUNT(*) as count,
         SUM(lr.total_days) as total_days
@@ -524,7 +650,7 @@ router.get('/stats/overview', authenticateToken, async (req, res) => {
 
     // Get leave type distribution
     const [leaveTypeStats] = await pool.execute(`
-      SELECT 
+      SELECT
         lt.name as leave_type_name,
         lt.color as leave_type_color,
         COUNT(*) as count,
