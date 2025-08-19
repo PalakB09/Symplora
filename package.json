@@ -1,7 +1,7 @@
 {
   "name": "leave-management-system",
   "version": "1.0.0",
-  "main": "server/index.js",
+  "main": "index.js",
   "scripts": {
     "dev": "concurrently \"npm run server\" \"npm run client\"",
     "server": "nodemon server/index.js",
