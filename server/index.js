@@ -37,8 +37,8 @@ app.use(cors({
   credentials: true
 }));
 
-// ✅ Handle preflight requests
-app.options('*', cors());
+// ✅ Handle preflight requests (Express 5 + path-to-regexp v6: use (.*) instead of *)
+app.options('(.*)', cors());
 
 // Rate limiting
 const limiter = rateLimit({
