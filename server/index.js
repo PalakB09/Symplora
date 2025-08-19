@@ -22,17 +22,25 @@ app.set('trust proxy', 1);
 // Security middleware
 app.use(helmet());
 
-// ✅ CORS configuration
+// ✅ CORS configuration (apply BEFORE routes)
+const allowedOrigins = [
+  'https://symplora.vercel.app', // production frontend
+  'http://localhost:3000'        // local dev
+];
+
 app.use(cors({
-  origin: process.env.NODE_ENV === 'production'
-    ? ['https://symplora.vercel.app']
-    : ['http://localhost:3000'],
+  origin: allowedOrigins,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 }));
 
-// ✅ Rate limiting
+// ✅ Handle preflight requests
+app.options('*', cors());
+
+// Rate limiting
 const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+  windowMs: 15 * 60 * 1000,
   max: 100,
   message: {
     success: false,
@@ -41,17 +49,17 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-// ✅ Body parsing
+// Body parsing
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// ✅ Request logging
+// Request logging
 app.use((req, res, next) => {
   console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
   next();
 });
 
-// ✅ Health check
+// Health check
 app.get('/health', (req, res) => {
   res.json({
     success: true,
@@ -61,7 +69,7 @@ app.get('/health', (req, res) => {
   });
 });
 
-// ✅ API routes
+// API routes
 app.use('/api/auth', authRoutes);
 app.use('/api/employees', employeeRoutes);
 app.use('/api/leaves', leaveRoutes);
@@ -69,15 +77,15 @@ app.use('/api/leave-types', leaveTypeRoutes);
 app.use('/api/holidays', holidayRoutes);
 // app.use('/api/dashboard', dashboardRoutes);
 
-// ✅ Catch-all 404 for API routes
-app.all(/^\/api\/.*/, (req, res) => {
+// 404 handler
+app.use((req, res) => {
   res.status(404).json({
     success: false,
-    message: `API Route ${req.originalUrl} not found`
+    message: `Route ${req.originalUrl} not found`
   });
 });
 
-// ✅ Global error handler
+// Global error handler
 app.use((error, req, res, next) => {
   console.error('Global error handler:', error);
 
@@ -103,16 +111,16 @@ app.use((error, req, res, next) => {
   });
 });
 
-// ✅ Start server
+// Start server
 const startServer = async () => {
   try {
     await testConnection();
-
+    
     app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
       console.log(`🔗 Health check: http://localhost:${PORT}/health`);
-      console.log(`📚 API Base: http://localhost:${PORT}/api`);
+      console.log(`📚 API Documentation: http://localhost:${PORT}/api`);
     });
   } catch (error) {
     console.error('❌ Failed to start server:', error);
@@ -120,7 +128,7 @@ const startServer = async () => {
   }
 };
 
-// ✅ Graceful shutdown
+// Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('SIGTERM received, shutting down gracefully');
   process.exit(0);
