@@ -36,9 +36,11 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 }));
+// Preflight handled automatically by cors() on matching routes; if needed, enable per-route
+// Example (safe): app.options('/api/*', cors())  // but avoid global patterns that break on Express 5
 
-// ✅ Handle preflight requests (Express 5 + path-to-regexp v6: use (.*) instead of *)
-app.options('(.*)', cors());
+
+
 
 // Rate limiting
 const limiter = rateLimit({
@@ -117,7 +119,7 @@ app.use((error, req, res, next) => {
 const startServer = async () => {
   try {
     await testConnection();
-    
+
     app.listen(PORT, () => {
       console.log(`🚀 Server running on port ${PORT}`);
       console.log(`📊 Environment: ${process.env.NODE_ENV || 'development'}`);
