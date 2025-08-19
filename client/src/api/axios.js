@@ -10,6 +10,7 @@ const baseURL = (import.meta.env.MODE === 'production')
 
 const api = axios.create({
   baseURL,
+  withCredentials: true,
 })
 
 api.interceptors.request.use((config) => {
