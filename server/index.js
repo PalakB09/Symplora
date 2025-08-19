@@ -144,10 +144,4 @@ process.on('SIGINT', () => {
 });
 
 
-app._router.stack.forEach(r => {
-  if (r.route && r.route.path) {
-    console.log('Registered route:', r.route.path);
-  }
-});
-
 startServer();
